@@ -15,6 +15,7 @@
 #    under the License.
 
 import sys
+from pydicti import dicti
 
 try:
     from urllib import urlencode
@@ -52,12 +53,12 @@ def make_environ(event):
         http_hdr_name = 'HTTP_%s' % hdr_name
         environ[http_hdr_name] = hdr_value
 
-    qs = event['queryStringParameters']
+    qs = event['queryStringParameters'] if 'queryStringParameters' in event else ''
 
-    environ['REQUEST_METHOD'] = event['httpMethod']
-    environ['PATH_INFO'] = event['path']
+    environ['REQUEST_METHOD'] = event['requestContext']['http']['method']
+    environ['PATH_INFO'] = event['rawPath']
     environ['QUERY_STRING'] = urlencode(qs) if qs else ''
-    environ['REMOTE_ADDR'] = event['requestContext']['identity']['sourceIp']
+    environ['REMOTE_ADDR'] = event['requestContext']['http']['sourceIp']
     environ['HOST'] = '%(HTTP_HOST)s:%(HTTP_X_FORWARDED_PORT)s' % environ
     environ['SCRIPT_NAME'] = ''
 
@@ -68,7 +69,7 @@ def make_environ(event):
         len(event['body']) if event['body'] else ''
     )
 
-    environ['wsgi.url_scheme'] = environ['HTTP_X_FORWARDED_PROTO']
+    environ['wsgi.url_scheme'] = event['headers']['X-Forwarded-Proto']
     environ['wsgi.input'] = StringIO(event['body'] or '')
     environ['wsgi.version'] = (1, 0)
     environ['wsgi.errors'] = sys.stderr
@@ -93,7 +94,10 @@ class LambdaResponse(object):
 
 class FlaskLambda(Flask):
     def __call__(self, event, context):
-        if 'httpMethod' not in event:
+        eventi = dicti(event)
+        eventi['headers'] = dicti(eventi['headers'])
+        print(eventi)
+        if 'rawPath' not in eventi:
             # In this "context" `event` is `environ` and
             # `context` is `start_response`, meaning the request didn't
             # occur via API Gateway and Lambda
@@ -101,10 +105,14 @@ class FlaskLambda(Flask):
 
         response = LambdaResponse()
 
+        env = make_environ(eventi)
+        print(env)
         body = next(self.wsgi_app(
-            make_environ(event),
+            env,
             response.start_response
         ))
+        
+
 
         return {
             'statusCode': response.status,
